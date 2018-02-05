@@ -2,8 +2,9 @@
 A custom manager for working with trees of objects.
 """
 from __future__ import unicode_literals
-import functools
+
 import contextlib
+import functools
 from itertools import groupby
 
 from django.db import models, connections, router
@@ -13,12 +14,10 @@ from django.utils.translation import ugettext as _
 from mptt.compat import cached_field_value, remote_field
 from mptt.exceptions import CantDisableUpdates, InvalidMove
 from mptt.querysets import TreeQuerySet
-from mptt.utils import _get_tree_model
 from mptt.signals import node_moved
-
+from mptt.utils import _get_tree_model
 
 __all__ = ('TreeManager',)
-
 
 COUNT_SUBQUERY = """(
     SELECT COUNT(*)
@@ -29,6 +28,24 @@ COUNT_SUBQUERY = """(
 CUMULATIVE_COUNT_SUBQUERY = """(
     SELECT COUNT(*)
     FROM %(rel_table)s
+    WHERE %(mptt_fk)s IN
+    (
+        SELECT m2.%(mptt_rel_to)s
+        FROM %(mptt_table)s m2
+        WHERE m2.%(tree_id)s = %(mptt_table)s.%(tree_id)s
+          AND m2.%(left)s BETWEEN %(mptt_table)s.%(left)s
+                              AND %(mptt_table)s.%(right)s
+    )
+)"""
+
+CUMULATIVE_DISTINCT_COUNT_SUBQUERY = """(
+    SELECT COUNT(*)
+    FROM (
+        SELECT DISTINCT ON
+            (%(distinct_str)),
+            %(distinct_str)
+        FROM %(rel_table)s
+    ) AS temp;
     WHERE %(mptt_fk)s IN
     (
         SELECT m2.%(mptt_rel_to)s
@@ -65,16 +82,17 @@ def delegate_manager(method):
     """
     Delegate method calls to base manager, if exists.
     """
+
     @functools.wraps(method)
     def wrapped(self, *args, **kwargs):
         if self._base_manager:
             return getattr(self._base_manager, method.__name__)(*args, **kwargs)
         return method(self, *args, **kwargs)
+
     return wrapped
 
 
 class TreeManager(models.Manager.from_queryset(TreeQuerySet)):
-
     """
     A manager for working with trees of objects.
     """
@@ -174,8 +192,8 @@ class TreeManager(models.Manager.from_queryset(TreeQuerySet)):
         for group in groupby(
                 q,
                 key=lambda n: (
-                    getattr(n, opts.tree_id_attr),
-                    getattr(n, opts.parent_attr + '_id'),
+                        getattr(n, opts.tree_id_attr),
+                        getattr(n, opts.parent_attr + '_id'),
                 )):
             next_lft = None
             for node in list(group[1]):
@@ -422,7 +440,7 @@ class TreeManager(models.Manager.from_queryset(TreeQuerySet)):
         return connections[router.db_for_write(self.model, **hints)]
 
     def add_related_count(self, queryset, rel_model, rel_field, count_attr,
-                          cumulative=False):
+                          cumulative=False, distinct_fields=None):
         """
         Adds a related item count to a given ``QuerySet`` using its
         ``extra`` method, for a ``Model`` class which has a relation to
@@ -479,15 +497,27 @@ class TreeManager(models.Manager.from_queryset(TreeQuerySet)):
                 }
         else:
             if cumulative:
-                subquery = CUMULATIVE_COUNT_SUBQUERY % {
-                    'rel_table': qn(rel_model._meta.db_table),
-                    'mptt_fk': qn(rel_model._meta.get_field(rel_field).column),
-                    'mptt_table': qn(self.tree_model._meta.db_table),
-                    'mptt_rel_to': qn(remote_field(mptt_field).field_name),
-                    'tree_id': qn(meta.get_field(self.tree_id_attr).column),
-                    'left': qn(meta.get_field(self.left_attr).column),
-                    'right': qn(meta.get_field(self.right_attr).column),
-                }
+                if distinct_fields:
+                    subquery = CUMULATIVE_DISTINCT_COUNT_SUBQUERY % {
+                        'rel_table': qn(rel_model._meta.db_table),
+                        'mptt_fk': qn(rel_model._meta.get_field(rel_field).column),
+                        'mptt_table': qn(self.tree_model._meta.db_table),
+                        'mptt_rel_to': qn(remote_field(mptt_field).field_name),
+                        'tree_id': qn(meta.get_field(self.tree_id_attr).column),
+                        'left': qn(meta.get_field(self.left_attr).column),
+                        'right': qn(meta.get_field(self.right_attr).column),
+                        'distinct_str': ', '.split(distinct_fields)
+                    }
+                else:
+                    subquery = CUMULATIVE_COUNT_SUBQUERY % {
+                        'rel_table': qn(rel_model._meta.db_table),
+                        'mptt_fk': qn(rel_model._meta.get_field(rel_field).column),
+                        'mptt_table': qn(self.tree_model._meta.db_table),
+                        'mptt_rel_to': qn(remote_field(mptt_field).field_name),
+                        'tree_id': qn(meta.get_field(self.tree_id_attr).column),
+                        'left': qn(meta.get_field(self.left_attr).column),
+                        'right': qn(meta.get_field(self.right_attr).column),
+                    }
             else:
                 subquery = COUNT_SUBQUERY % {
                     'rel_table': qn(rel_model._meta.db_table),
@@ -651,6 +681,7 @@ class TreeManager(models.Manager.from_queryset(TreeQuerySet)):
         for pk in pks:
             idx += 1
             rebuild_helper(pk, 1, idx)
+
     rebuild.alters_data = True
 
     @delegate_manager
