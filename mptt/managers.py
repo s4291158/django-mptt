@@ -506,7 +506,7 @@ class TreeManager(models.Manager.from_queryset(TreeQuerySet)):
                         'tree_id': qn(meta.get_field(self.tree_id_attr).column),
                         'left': qn(meta.get_field(self.left_attr).column),
                         'right': qn(meta.get_field(self.right_attr).column),
-                        'distinct_str': ', '.split(distinct_fields)
+                        'distinct_str': ', '.join(distinct_fields)
                     }
                 else:
                     subquery = CUMULATIVE_COUNT_SUBQUERY % {
