@@ -42,8 +42,8 @@ CUMULATIVE_DISTINCT_COUNT_SUBQUERY = """(
     SELECT COUNT(*)
     FROM (
         SELECT DISTINCT ON
-            (user_id, %(distinct_str)s)
-            %(distinct_str)s
+            (%(distinct_str)s)
+            user_id, %(distinct_str)s
         FROM %(rel_table)s
     ) AS temp
     WHERE %(mptt_fk)s IN
