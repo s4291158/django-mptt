@@ -45,7 +45,7 @@ CUMULATIVE_DISTINCT_COUNT_SUBQUERY = """(
             (%(distinct_str)s)
             %(distinct_str)s
         FROM %(rel_table)s
-    ) AS temp;
+    ) AS temp
     WHERE %(mptt_fk)s IN
     (
         SELECT m2.%(mptt_rel_to)s
